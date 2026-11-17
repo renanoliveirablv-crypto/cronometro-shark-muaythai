@@ -150,7 +150,9 @@ input[type=range]{width:100%}
 .ltt{font-size:8.5vh;opacity:.8}
 .lph{font-size:12.5vh;flex:1;overflow:hidden;text-overflow:ellipsis}
 #lbig{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
-#lTime{line-height:1;letter-spacing:0;white-space:nowrap;font-variant-numeric:tabular-nums;display:inline-block}
+#lbig{position:relative}
+#lTime{position:absolute;left:0;top:0;opacity:0;pointer-events:none;font-size:20px;line-height:1;letter-spacing:0;white-space:nowrap}
+#lCv{position:absolute;left:0;top:0;width:100%;height:100%;display:block}
 .lbt{display:flex;align-items:stretch;height:14vh;font-size:9.5vh;white-space:nowrap}
 .lbt>span{display:flex;align-items:center}
 .lbt .bx{background:#0d0d0d;color:var(--work);padding:0 2.4vw;font-size:12vh;border-top-right-radius:1.2vh}
@@ -188,7 +190,7 @@ input[type=range]{width:100%}
         <button class="lb" id="lFs" aria-label="Tela cheia" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
         <button class="lb" id="lPlay" aria-label="Iniciar ou pausar"></button>
       </div>
-      <div id="lbig"><span id="lTime">00:00</span></div>
+      <div id="lbig"><span id="lTime">00:00</span><canvas id="lCv" aria-hidden="true"></canvas></div>
       <div class="lbt">
         <span class="bx" id="lRd">6</span>
         <span class="as" id="lAs">A SEGUIR</span>
@@ -339,21 +341,30 @@ function tick(){const e=elapsed();
 const ICON_PLAY='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3.5v17l14-8.5z"/></svg>';
 const ICON_PAUSE='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="5" height="16" rx="1"/><rect x="14" y="4" width="5" height="16" rx="1"/></svg>';
 /* ---- layout deitado ---- */
-let fitKey='';
-function fitBig(force){const box=$('#lbig'),el=$('#lTime');if(!box||!box.clientWidth)return;
- const txt=el.textContent,k=box.clientWidth+'x'+box.clientHeight+':'+txt.length+':'+(document.fonts?document.fonts.status:'');
- if(!force&&k===fitKey)return;fitKey=k;
- /* mede o desenho real dos números (não a caixa do texto) para centralizar de verdade */
- const c=fitBig.c||(fitBig.c=document.createElement('canvas').getContext('2d'));
- c.font='100px '+getComputedStyle(el).fontFamily;
- const m=c.measureText(txt.replace(/\d/g,'8')),asc=m.actualBoundingBoxAscent,desc=m.actualBoundingBoxDescent,
-  L=m.actualBoundingBoxLeft,R=m.actualBoundingBoxRight,inkW=L+R,inkH=asc+desc;if(!inkW||!inkH)return;
- const F=Math.floor(Math.min(box.clientWidth*.96/inkW,box.clientHeight*.90/inkH)*100),f=F/100;
- const fa=m.fontBoundingBoxAscent,fd=m.fontBoundingBoxDescent;
- const ty=(fa==null||fd==null)?0:f*((asc-desc)-(fa-fd))/2,tx=f*(m.width-(R-L))/2;
- el.style.fontSize=F+'px';el.style.transform='translate('+tx.toFixed(1)+'px,'+ty.toFixed(1)+'px)'}
-addEventListener('resize',()=>fitBig(true));
-if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>fitBig(true));
+/* número grande desenhado num canvas: mede os pixels reais dos dígitos (igual em iPhone, Android e TV)
+   e centraliza com folga em cima e embaixo */
+const BIG_W=.94,BIG_H=.80;
+function inkOf(txt,fam){const k=txt+'|'+fam+'|'+(document.fonts?document.fonts.status:'');const C=inkOf.m||(inkOf.m={});if(C[k])return C[k];
+ const S=200,cv=inkOf.cv||(inkOf.cv=document.createElement('canvas')),c=cv.getContext('2d',{willReadFrequently:true});
+ c.font=S+'px '+fam;const w=Math.ceil(c.measureText(txt).width)+S,h=S*2;cv.width=w;cv.height=h;
+ c.font=S+'px '+fam;c.textBaseline='alphabetic';c.textAlign='left';c.fillStyle='#000';c.clearRect(0,0,w,h);c.fillText(txt,S/2,S*1.4);
+ const d=c.getImageData(0,0,w,h).data;let x0=w,x1=-1,y0=h,y1=-1;
+ for(let y=0;y<h;y++){const r=y*w*4;for(let x=0;x<w;x++)if(d[r+x*4+3]>40){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}}
+ if(x1<0)return null;const o={S,w:(x1-x0+1)/S,h:(y1-y0+1)/S,l:(x0-S/2)/S,t:(y0-S*1.4)/S};C[k]=o;return o}
+function fitBig(){const box=$('#lbig'),el=$('#lTime'),cv=$('#lCv');if(!box||!cv)return;
+ const W=box.clientWidth,H=box.clientHeight;if(!W||!H)return;
+ const dpr=Math.min(window.devicePixelRatio||1,3),pw=Math.round(W*dpr),ph=Math.round(H*dpr);
+ if(cv.width!==pw||cv.height!==ph){cv.width=pw;cv.height=ph}
+ const c=cv.getContext('2d');c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,pw,ph);
+ const txt=el.textContent,cs=getComputedStyle(el),fam=cs.fontFamily;
+ const ink=inkOf(txt.replace(/\d/g,'8'),fam);if(!ink)return;
+ const f=Math.min(W*BIG_W/ink.w,H*BIG_H/ink.h);           /* tamanho da fonte em px CSS */
+ const x=(W-ink.w*f)/2-ink.l*f, y=(H-ink.h*f)/2-ink.t*f;   /* posição da linha de base para centralizar o desenho */
+ c.setTransform(dpr,0,0,dpr,0,0);c.font=f+'px '+fam;c.textBaseline='alphabetic';c.textAlign='left';c.fillStyle=cs.color;c.fillText(txt,x,y)}
+addEventListener('resize',()=>fitBig());
+if(document.fonts){document.fonts.ready.then(()=>fitBig());
+ try{document.fonts.load('100px "Bebas Neue"','0123456789:').then(()=>fitBig())}catch(e){}
+ try{document.fonts.addEventListener('loadingdone',()=>fitBig())}catch(e){}}
 function renderLand(phase,time,nextTxt,hasNext,rounds,cyc){
  $('#lTot').textContent=TITLE[mode]+' '+$('#total').textContent;$('#lPh').textContent=phase;
  $('#lTime').textContent=time;$('#lRd').textContent=rounds;$('#lCy').textContent=cyc;
