@@ -272,12 +272,22 @@ function setWm(col){const dark=lum(col)>.6,k=(S.brand.logo?'c':'b')+dark;if(k===
 function refreshBrand(){const src=logoSrc();$$('.blogo').forEach(i=>i.src=src);$('#lLogo').src=S.brand.logo||IMG.bw;wmKey='';setWm(S.brand.colors.prep);$$('.bname').forEach(s=>s.textContent=S.brand.name)}
 
 /* ---------- sound ---------- */
-let ac=null;
-function ensureAudio(){try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume()}catch(e){}}
+let ac=null,comp=null;
+/* Som robusto: quando a tela apaga ou o app vai para segundo plano, o iPhone/Android "congela" o áudio.
+   Ao voltar, no primeiro toque na tela o áudio é recriado e destravado, sem precisar fechar o app. */
+let acStale=false;
+function newAudio(){try{if(ac&&ac.close)ac.close()}catch(e){}ac=null;comp=null;
+ try{ac=new(window.AudioContext||window.webkitAudioContext)()}catch(e){ac=null}}
+function unlockAudio(){if(!ac)return;try{if(ac.state!=='running')ac.resume();
+ const b=ac.createBuffer(1,1,22050),src=ac.createBufferSource();src.buffer=b;src.connect(ac.destination);src.start(0)}catch(e){}}
+function ensureAudio(){try{if(!ac||acStale||ac.state==='closed'||ac.state==='interrupted')newAudio();acStale=false;unlockAudio()}catch(e){}}
+function audioGesture(){if(!ac||acStale||ac.state!=='running')ensureAudio()}
+['pointerdown','touchend','click','keydown'].forEach(ev=>document.addEventListener(ev,audioGesture,{capture:true,passive:true}));
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){acStale=true}else{try{ac&&ac.state!=='running'&&ac.resume()}catch(e){}}});
+addEventListener('pagehide',()=>{acStale=true});
 function tone(f,d,at){if(!S.sound.on||!ac)return;try{const t=ac.currentTime+(at||0),o=ac.createOscillator(),g=ac.createGain(),v=S.sound.vol*.45;
  o.type='square';o.frequency.value=f;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(v,t+.01);g.gain.setValueAtTime(v,t+d-.03);g.gain.linearRampToValueAtTime(0,t+d);
  o.connect(g);g.connect(out());o.start(t);o.stop(t+d+.02)}catch(e){}}
-let comp=null;
 function out(){if(!comp){comp=ac.createDynamicsCompressor();comp.threshold.value=-10;comp.ratio.value=4;comp.connect(ac.destination)}return comp}
 /* ---- biblioteca de sons ---- */
 function osc(type,f,t,d,v,dest){const o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.setValueAtTime(f,t);g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(v,t+.01);g.gain.setValueAtTime(v,t+d-.05);g.gain.linearRampToValueAtTime(0,t+d);o.connect(g);g.connect(dest||out());o.start(t);o.stop(t+d+.02);return o}
@@ -308,9 +318,12 @@ function preview(id){ensureAudio();if(!ac)return;try{(SOUNDS[id]||SOUNDS.sino3).
 const snd={tick:()=>tone(880,.12),prep:()=>tone(990,.3),work:()=>play(S.sound.start),rest:()=>play(S.sound.end),done:()=>play(S.sound.finish)};
 function vib(p){if(S.sound.vibrate)try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}}
 let wl=null;
-async function wake(){try{if(navigator.wakeLock)wl=await navigator.wakeLock.request('screen')}catch(e){}}
-function release(){try{wl&&wl.release();}catch(e){}wl=null}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&running)wake()});
+/* Tela sempre ligada enquanto o app está aberto (também entre os treinos, quando o mestre explica o exercício) */
+async function wake(){try{if(navigator.wakeLock&&(!wl||wl.released)&&document.visibilityState==='visible'){wl=await navigator.wakeLock.request('screen');wl.addEventListener&&wl.addEventListener('release',()=>{wl=null})}}catch(e){}}
+function release(){/* mantém a tela ligada: não solta mais ao pausar ou terminar */}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')wake()});
+['pointerdown','click'].forEach(ev=>document.addEventListener(ev,()=>wake(),{capture:true,passive:true}));
+wake();
 
 /* ---------- engine ---------- */
 let mode='tabata',view='timer',segs=[],total=0,el=0,t0=0,running=false,finished=false,idx0=-1,lastKey='',iv=null;
