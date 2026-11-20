@@ -325,6 +325,49 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 ['pointerdown','click'].forEach(ev=>document.addEventListener(ev,()=>wake(),{capture:true,passive:true}));
 wake();
 
+
+/* ---- faixa de áudio do treino (toca mesmo com a tela bloqueada) ----
+   Ao dar play, o app gera um arquivo de áudio com todos os bipes e sinos do restante do treino, nos tempos certos,
+   e toca esse arquivo como uma música. Com a tela bloqueada o iPhone congela o app, mas continua tocando o áudio. */
+const BG_SR=16000,BG_CH=30;let bgA=null,bgUrl=null,bgGen=0,bgOn=false,bgFrom=0,bgCovered=Infinity;
+const live=at=>!(bgOn&&at>=bgCovered);
+function wavHead(n){const b=new ArrayBuffer(44),v=new DataView(b),w=(o,t)=>{for(let i=0;i<t.length;i++)v.setUint8(o+i,t.charCodeAt(i))};
+ w(0,'RIFF');v.setUint32(4,36+n,true);w(8,'WAVE');w(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
+ v.setUint32(24,BG_SR,true);v.setUint32(28,BG_SR,true);v.setUint16(32,1,true);v.setUint16(34,8,true);w(36,'data');v.setUint32(40,n,true);return b}
+const SILENT=URL.createObjectURL(new Blob([wavHead(1600),new Uint8Array(1600).fill(128)],{type:'audio/wav'}));
+function bgEl(){if(!bgA){bgA=new Audio();bgA.preload='auto';bgA.setAttribute('playsinline','');bgA.addEventListener('error',()=>{bgOn=false})}return bgA}
+function cueList(from){const L=[],cd=S.sound.countdown;
+ segs.forEach((g,i)=>{if(i>0)L.push({t:g.s,k:g.type==='prep'?'prep':g.type==='work'?'work':'rest'});
+  if(cd)for(let r=3;r>=1;r--){const t=g.e-r*1000;if(t>g.s)L.push({t,k:'tick'})}});
+ L.push({t:total,k:'done'});return L.filter(c=>c.t>from)}
+function bgSched(k,at){if(k==='tick')tone(880,.12,at);else if(k==='prep')tone(990,.3,at);
+ else{const id=k==='work'?S.sound.start:k==='rest'?S.sound.end:S.sound.finish;(SOUNDS[id]||SOUNDS.sino3).p(at,S.sound.vol)}}
+async function bgRender(from,gen){const OAC=window.OfflineAudioContext||window.webkitOfflineAudioContext;if(!OAC)return null;
+ const L=cueList(from),dur=(total-from)/1000+5,N=Math.ceil(dur*BG_SR),pcm=new Uint8Array(N).fill(128),PRE=6;
+ for(let a=0;a<dur;a+=BG_CH){if(gen!==bgGen)return null;const b=Math.min(dur,a+BG_CH);
+  const cs=L.filter(c=>{const t=(c.t-from)/1000;return t>=a-PRE&&t<b});if(!cs.length)continue;
+  const len=Math.ceil((b-a+PRE)*BG_SR),off=new OAC(1,len,BG_SR),sa=ac,sc=comp;
+  try{ac=off;comp=null;cs.forEach(c=>bgSched(c.k,(c.t-from)/1000-(a-PRE)))}finally{ac=sa;comp=sc}
+  const buf=await new Promise((r,j)=>{off.oncomplete=e=>r(e.renderedBuffer);try{const p=off.startRendering();if(p&&p.then)p.then(r,j)}catch(e){j(e)}});
+  const d=buf.getChannelData(0),s0=Math.round(PRE*BG_SR),i0=Math.round(a*BG_SR);
+  for(let j=s0;j<d.length&&i0+j-s0<N;j++){const x=d[j];if(x){const p=i0+j-s0,y=pcm[p]-128+x*127;pcm[p]=Math.max(0,Math.min(255,Math.round(y+128)))}}}
+ return URL.createObjectURL(new Blob([wavHead(N),pcm],{type:'audio/wav'}))}
+function bgStart(){if(!S.sound.on||!segs.length)return;const gen=++bgGen,a=bgEl();bgOn=false;bgCovered=Infinity;
+ try{a.src=SILENT;a.loop=true;const p=a.play();p&&p.catch(()=>{})}catch(e){}   /* destrava o player dentro do toque no play */
+ const from=elapsed();bgFrom=from;
+ setTimeout(async()=>{let url=null;try{url=await bgRender(from,gen)}catch(e){url=null}
+  if(gen!==bgGen||!running||!url){if(url)URL.revokeObjectURL(url);return}
+  if(bgUrl)URL.revokeObjectURL(bgUrl);bgUrl=url;a.loop=false;a.src=url;
+  const go=()=>{if(gen!==bgGen||!running)return;const now=elapsed();bgCovered=now+400;a.currentTime=Math.max(0,(now-from)/1000);
+   const p=a.play();bgOn=true;p&&p.catch(()=>{bgOn=false})};
+  if(a.readyState>=1)go();else a.addEventListener('loadedmetadata',go,{once:true});
+  try{if('mediaSession'in navigator){navigator.mediaSession.metadata=new MediaMetadata({title:'Cronômetro',artist:S.brand.name});
+   navigator.mediaSession.setActionHandler('pause',()=>{if(running)pause()});navigator.mediaSession.setActionHandler('play',()=>{if(!running)start()})}}catch(e){}},30)}
+function bgStop(){bgGen++;bgOn=false;bgCovered=Infinity;try{bgA&&bgA.pause()}catch(e){}}
+/* ao voltar para o app, acerta a faixa com o relógio se ela tiver escorregado */
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&running&&bgOn&&bgA){
+ const want=(elapsed()-bgFrom)/1000;if(Math.abs(bgA.currentTime-want)>.35)try{bgA.currentTime=want}catch(e){}
+ if(bgA.paused){const p=bgA.play();p&&p.catch(()=>{bgOn=false})}}});
 /* ---------- engine ---------- */
 let mode='tabata',view='timer',segs=[],total=0,el=0,t0=0,running=false,finished=false,idx0=-1,lastKey='',iv=null;
 const LBL={tabata:{prep:'PREPARAR',work:'EXERCÍCIO',rest:'DESCANSAR',cycleRest:'DESCANSO ENTRE CICLOS'},
@@ -338,18 +381,18 @@ function build(){const c=S[mode];segs=[];let t=0;
   for(let cy=1;cy<=c.cycles;cy++)for(let r=1;r<=c.rounds;r++){add('work',c.work,r,cy);
    if(!(cy===c.cycles&&r===c.rounds)){if(r<c.rounds)add('rest',c.rest,r,cy);else add('cycleRest',c.cycleRest>0?c.cycleRest:c.rest,r,cy)}}}
  total=t*1000}
-const elapsed=()=>running?Math.min(total,el+performance.now()-t0):el;
+const elapsed=()=>running?Math.min(total,el+Date.now()-t0):el;
 const curIdx=e=>{for(let i=0;i<segs.length;i++)if(e<segs[i].e)return i;return Math.max(0,segs.length-1)};
-function cue(type){if(type==='prep')snd.prep();else if(type==='work')snd.work();else snd.rest();vib(type==='work'?[300]:[120,80,120])}
-function start(){if(!segs.length)return;ensureAudio();if(finished)reset();running=true;t0=performance.now();
- idx0=curIdx(el);if(el===0)cue(segs[idx0].type);lastKey='';wake();clearInterval(iv);iv=setInterval(tick,100);render()}
-function pause(){el=elapsed();running=false;clearInterval(iv);release();render()}
-function reset(){running=false;finished=false;el=0;idx0=-1;lastKey='';clearInterval(iv);release();build();render()}
+function cue(type,at){if(live(at)){if(type==='prep')snd.prep();else if(type==='work')snd.work();else snd.rest()}vib(type==='work'?[300]:[120,80,120])}
+function start(){if(!segs.length)return;ensureAudio();if(finished)reset();running=true;t0=Date.now();bgStart();
+ idx0=curIdx(el);if(el===0)cue(segs[idx0].type,-1);lastKey='';wake();clearInterval(iv);iv=setInterval(tick,100);render()}
+function pause(){el=elapsed();running=false;bgStop();clearInterval(iv);release();render()}
+function reset(){running=false;finished=false;el=0;idx0=-1;lastKey='';bgStop();clearInterval(iv);release();build();render()}
 function tick(){const e=elapsed();
- if(e>=total){running=false;finished=true;el=total;clearInterval(iv);release();snd.done();vib([400,150,400]);render();return}
+ if(e>=total){running=false;finished=true;el=total;clearInterval(iv);release();if(live(total))snd.done();bgOn=false;bgGen++;vib([400,150,400]);render();return}
  const i=curIdx(e),rem=Math.ceil((segs[i].e-e)/1000);
- if(i!==idx0){idx0=i;cue(segs[i].type);lastKey=i+'-'+rem}
- else if(S.sound.countdown&&rem<=3&&rem>=1&&i+'-'+rem!==lastKey){lastKey=i+'-'+rem;snd.tick()}
+ if(i!==idx0){idx0=i;cue(segs[i].type,segs[i].s);lastKey=i+'-'+rem}
+ else if(S.sound.countdown&&rem<=3&&rem>=1&&i+'-'+rem!==lastKey){lastKey=i+'-'+rem;if(live(segs[i].e-rem*1000))snd.tick()}
  render()}
 const ICON_PLAY='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3.5v17l14-8.5z"/></svg>';
 const ICON_PAUSE='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="5" height="16" rx="1"/><rect x="14" y="4" width="5" height="16" rx="1"/></svg>';
