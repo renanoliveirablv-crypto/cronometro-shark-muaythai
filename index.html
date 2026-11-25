@@ -238,7 +238,7 @@ const THEMES={
 const P=(name,mode,prep,work,rest,rounds,cycles,cycleRest)=>({id:'p'+Math.random().toString(36).slice(2,8),name,mode,prep,work,rest,rounds,cycles:cycles||1,cycleRest:cycleRest||0});
 const DEF={
  brand:{name:'SHARK MUAY THAI',logo:'',colors:{...THEMES['Shark']}},
- sound:{on:true,vol:.8,vibrate:true,countdown:true,start:'sino3',end:'bipF',finish:'final',v:3},
+ sound:{on:true,vol:.8,vibrate:true,countdown:true,mix:true,lock:false,start:'sino3',end:'bipF',finish:'final',v:3},
  tabata:{prep:0,work:180,rest:50,rounds:6,cycles:1,cycleRest:0},
  rounds:{prep:10,work:300,rest:60,rounds:5,cycles:1,cycleRest:0},
  countdown:{work:300},
@@ -276,11 +276,16 @@ let ac=null,comp=null;
 /* Som robusto: quando a tela apaga ou o app vai para segundo plano, o iPhone/Android "congela" o áudio.
    Ao voltar, no primeiro toque na tela o áudio é recriado e destravado, sem precisar fechar o app. */
 let acStale=false;
+/* Música junto: modo "ambient" toca os bipes por cima do Deezer/Spotify/YouTube sem pausar a música.
+   Modo tela bloqueada: usa a faixa de áudio (pausa outros apps de música no iPhone). */
+const lockMode=()=>!!S.sound.lock;
+function applySession(){try{if(navigator.audioSession)navigator.audioSession.type=lockMode()?'playback':'ambient'}catch(e){}}
+applySession();
 function newAudio(){try{if(ac&&ac.close)ac.close()}catch(e){}ac=null;comp=null;
  try{ac=new(window.AudioContext||window.webkitAudioContext)()}catch(e){ac=null}}
 function unlockAudio(){if(!ac)return;try{if(ac.state!=='running')ac.resume();
  const b=ac.createBuffer(1,1,22050),src=ac.createBufferSource();src.buffer=b;src.connect(ac.destination);src.start(0)}catch(e){}}
-function ensureAudio(){try{if(!ac||acStale||ac.state==='closed'||ac.state==='interrupted')newAudio();acStale=false;unlockAudio()}catch(e){}}
+function ensureAudio(){applySession();try{if(!ac||acStale||ac.state==='closed'||ac.state==='interrupted')newAudio();acStale=false;unlockAudio()}catch(e){}}
 function audioGesture(){if(!ac||acStale||ac.state!=='running')ensureAudio()}
 ['pointerdown','touchend','click','keydown'].forEach(ev=>document.addEventListener(ev,audioGesture,{capture:true,passive:true}));
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){acStale=true}else{try{ac&&ac.state!=='running'&&ac.resume()}catch(e){}}});
@@ -352,7 +357,7 @@ async function bgRender(from,gen){const OAC=window.OfflineAudioContext||window.w
   const d=buf.getChannelData(0),s0=Math.round(PRE*BG_SR),i0=Math.round(a*BG_SR);
   for(let j=s0;j<d.length&&i0+j-s0<N;j++){const x=d[j];if(x){const p=i0+j-s0,y=pcm[p]-128+x*127;pcm[p]=Math.max(0,Math.min(255,Math.round(y+128)))}}}
  return URL.createObjectURL(new Blob([wavHead(N),pcm],{type:'audio/wav'}))}
-function bgStart(){if(!S.sound.on||!segs.length)return;const gen=++bgGen,a=bgEl();bgOn=false;bgCovered=Infinity;
+function bgStart(){if(!S.sound.on||!segs.length||!lockMode())return;const gen=++bgGen,a=bgEl();bgOn=false;bgCovered=Infinity;
  try{a.src=SILENT;a.loop=true;const p=a.play();p&&p.catch(()=>{})}catch(e){}   /* destrava o player dentro do toque no play */
  const from=elapsed();bgFrom=from;
  setTimeout(async()=>{let url=null;try{url=await bgRender(from,gen)}catch(e){url=null}
@@ -544,6 +549,8 @@ function renderMore(){const b=$('#moreBody');b.innerHTML='';const C=S.brand.colo
     h('button',{class:'pv','aria-label':'Ouvir',onclick:()=>preview(S.sound[k])},'▶')))),
   h('div',{class:'h3'},'SOM E ALERTAS'),
   tg('Som ligado','on'),tg('Bipes nos últimos 3 segundos de cada fase','countdown'),tg('Vibração (celular)','vibrate'),
+  h('label',{class:'tg'},h('span',{},'Tocar sons com a tela bloqueada',h('small',{style:'display:block;opacity:.65;font-size:.8em;margin-top:3px;line-height:1.3'},'Ligado: os bipes tocam mesmo com o celular bloqueado, mas pausa a música do Deezer/Spotify/YouTube. Desligado: os bipes tocam junto com a música (deixe a tela ligada e o celular fora do modo silencioso).')),
+   h('input',{type:'checkbox',style:'flex:none;margin-left:12px',...(S.sound.lock?{checked:''}:{}),onchange:e=>{S.sound.lock=e.target.checked;save();if(!S.sound.lock)bgStop();applySession();acStale=true}})),
   h('label',{class:'tg'},h('span',{},'Volume'),h('input',{type:'range',min:'0.1',max:'1',step:'0.05',value:S.sound.vol,style:'width:55%',oninput:e=>{S.sound.vol=+e.target.value;save()}})),
   h('div',{style:'height:10px'}),
   h('button',{class:'btn o w',onclick:()=>{ensureAudio();snd.tick();preview(S.sound.start);setTimeout(()=>preview(S.sound.end),2600);setTimeout(()=>preview(S.sound.finish),4600)}},'TESTAR SONS'),
