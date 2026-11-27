@@ -549,7 +549,7 @@ function renderMore(){const b=$('#moreBody');b.innerHTML='';const C=S.brand.colo
     h('button',{class:'pv','aria-label':'Ouvir',onclick:()=>preview(S.sound[k])},'▶')))),
   h('div',{class:'h3'},'SOM E ALERTAS'),
   tg('Som ligado','on'),tg('Bipes nos últimos 3 segundos de cada fase','countdown'),tg('Vibração (celular)','vibrate'),
-  h('label',{class:'tg'},h('span',{},'Tocar sons com a tela bloqueada',h('small',{style:'display:block;opacity:.65;font-size:.8em;margin-top:3px;line-height:1.3'},'Ligado: os bipes tocam mesmo com o celular bloqueado, mas pausa a música do Deezer/Spotify/YouTube. Desligado: os bipes tocam junto com a música (deixe a tela ligada e o celular fora do modo silencioso).')),
+  h('label',{class:'tg'},h('span',{},'Tocar com a tela bloqueada e no modo silencioso',h('small',{style:'display:block;opacity:.65;font-size:.8em;margin-top:3px;line-height:1.3'},'Ligado: os bipes tocam mesmo com o celular bloqueado ou na chave do silencioso, mas pausa a música do Deezer/Spotify/YouTube. Desligado: os bipes tocam junto com a música (deixe a tela ligada e a chave do silencioso desligada; para não tocar ligações, use o Não Perturbe).')),
    h('input',{type:'checkbox',style:'flex:none;margin-left:12px',...(S.sound.lock?{checked:''}:{}),onchange:e=>{S.sound.lock=e.target.checked;save();if(!S.sound.lock)bgStop();applySession();acStale=true}})),
   h('label',{class:'tg'},h('span',{},'Volume'),h('input',{type:'range',min:'0.1',max:'1',step:'0.05',value:S.sound.vol,style:'width:55%',oninput:e=>{S.sound.vol=+e.target.value;save()}})),
   h('div',{style:'height:10px'}),
